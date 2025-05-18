@@ -10,24 +10,13 @@ import os
 import pytz
 import re
 
-# Load configuration
-try:
-    from config import GEMINI_API_KEY, SUPABASE_URL, SUPABASE_KEY, CREDENTIALS_FILE, TOKEN_FILE, SCOPES
-except ImportError:
-    GEMINI_API_KEY = None
-    SUPABASE_URL = None
-    SUPABASE_KEY = None
-    CREDENTIALS_FILE = "credentials.json"
-    TOKEN_FILE = "token.json"
-    SCOPES = ["https://www.googleapis.com/auth/calendar"]
-
 app = Flask(__name__)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # 🔹 Configure Gemini API
-api_key = os.getenv("GEMINI_API_KEY", GEMINI_API_KEY)
+api_key = os.getenv("GEMINI_API_KEY")
 if not api_key:
     logger.error("Gemini API key not found")
     llm = None
@@ -40,8 +29,8 @@ else:
         llm = None
 
 # 🔹 Configure Supabase
-supabase_url = os.getenv("SUPABASE_URL", SUPABASE_URL)
-supabase_key = os.getenv("SUPABASE_KEY", SUPABASE_KEY)
+supabase_url = os.getenv("SUPABASE_URL")
+supabase_key = os.getenv("SUPABASE_KEY")
 if not supabase_url or not supabase_key:
     logger.error("Supabase credentials not found")
     supabase = None
@@ -54,27 +43,37 @@ else:
         supabase = None
 
 # 🔹 Google Calendar API Setup
+SCOPES = ["https://www.googleapis.com/auth/calendar"]
+
 def get_calendar_service():
     """Authenticate and return Google Calendar service."""
-    credentials_file = os.getenv("CREDENTIALS_FILE", CREDENTIALS_FILE)
-    token_file = os.getenv("TOKEN_FILE", TOKEN_FILE)
-    if not os.path.exists(credentials_file):
-        logger.error(f"Missing {credentials_file}")
+    credentials_file = os.getenv("CREDENTIALS_JSON")
+    token_file = os.getenv("TOKEN_JSON")
+    if not credentials_file or not token_file:
+        logger.error("Google Calendar credentials or token not found in environment variables")
         return None
     try:
+        # Write credentials.json and token.json from environment variables
+        with open("credentials.json", "w") as f:
+            f.write(credentials_file)
+        with open("token.json", "w") as f:
+            f.write(token_file)
         creds = None
-        if os.path.exists(token_file):
+        if os.path.exists("token.json"):
             from google.oauth2.credentials import Credentials
-            creds = Credentials.from_authorized_user_file(token_file, SCOPES)
+            creds = Credentials.from_authorized_user_file("token.json", SCOPES)
         if not creds or not creds.valid:
-            flow = InstalledAppFlow.from_client_secrets_file(credentials_file, SCOPES)
-            creds = flow.run_local_server(port=0)
-            with open(token_file, 'w') as token:
-                token.write(creds.to_json())
+            logger.error("Invalid or expired credentials; re-authentication required")
+            return None
         return build('calendar', 'v3', credentials=creds)
     except Exception as e:
         logger.error(f"Calendar auth error: {e}")
         return None
+    finally:
+        # Clean up temporary files
+        for file in ["credentials.json", "token.json"]:
+            if os.path.exists(file):
+                os.remove(file)
 
 # 🔹 In-memory state
 state = {
@@ -102,7 +101,7 @@ def schedule_meeting(details):
     try:
         service = state['calendar_service'] or get_calendar_service()
         if not service:
-            return None, "Looks like your Google Calendar credentials are missing or invalid. Please ensure credentials.json is in the project directory and re-authenticate."
+            return None, "Looks like your Google Calendar credentials are missing or invalid."
         state['calendar_service'] = service
 
         title = details.get('title', 'Meeting')
@@ -159,7 +158,7 @@ def schedule_meeting(details):
         return event['id'], None
     except Exception as e:
         logger.error(f"Meeting scheduling failed: {str(e)}")
-        return None, f"Oops, I couldn’t schedule the meeting: {str(e)}. Please check if credentials.json is valid, re-authenticate if needed, and ensure your Google Calendar is accessible."
+        return None, f"Oops, I couldn’t schedule the meeting: {str(e)}."
 
 # 🔹 Routes
 @app.route('/')
