@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agentic Meeting Scheduler</title>
+    <style>
+        :root {
+            --primary: #4285F4; /* Google Blue */
+            --secondary: #34C759; /* Siri Green */
+            --background: #F1F3F4; /* Light Gray */
+            --card-bg: #FFFFFF; /* White */
+            --text: #202124; /* Dark Gray */
+            --text-muted: #5F6368; /* Muted Gray */
+            --shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Google Sans', 'Roboto', Arial, sans-serif;
+            background-color: var(--background);
+            color: var(--text);
+            line-height: 1.6;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+            padding: 16px;
+        }
+
+        header {
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+            color: #FFFFFF;
+            padding: 16px 24px;
+            border-radius: 12px;
+            margin-bottom: 24px;
+            box-shadow: var(--shadow);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        header h1 {
+            font-size: 1.5rem;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        main {
+            display: flex;
+            flex: 1;
+            gap: 24px;
+            max-width: 1200px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        .container {
+            flex: 3;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .chat-container {
+            background-color: var(--card-bg);
+            border-radius: 12px;
+            box-shadow: var(--shadow);
+            padding: 16px;
+            max-height: 600px;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: var(--secondary) var(--background);
+        }
+
+        .chat-container::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .chat-container::-webkit-scrollbar-track {
+            background: var(--background);
+        }
+
+        .chat-container::-webkit-scrollbar-thumb {
+            background: var(--secondary);
+            border-radius: 3px;
+        }
+
+        .chat-message {
+            margin: 8px 0;
+            padding: 12px;
+            border-radius: 8px;
+            background-color: #F8F9FA;
+        }
+
+        .user-message {
+            color: var(--primary);
+            font-weight: 500;
+            background-color: #E8F0FE;
+        }
+
+        .assistant-message {
+            color: var(--text);
+            background-color: #ECEFF1;
+        }
+
+        .error-message {
+            color: #D93025;
+            font-style: italic;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+
+        .mic-icon {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background-color: var(--primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #FFFFFF;
+            font-size: 14px;
+        }
+
+        .mic-icon.listening {
+            animation: pulse 1.5s infinite;
+        }
+
+        .mic-icon.speaking {
+            background-color: var(--secondary);
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(66, 133, 244, 0.4); }
+            70% { box-shadow: 0 0 0 8px rgba(66, 133, 244, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(66, 133, 244, 0); }
+        }
+
+        .button-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 16px;
+        }
+
+        .mic-button, .tts-toggle-button, .stop-speech-button {
+            background-color: var(--primary);
+            color: #FFFFFF;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 24px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: background-color 0.3s, transform 0.2s;
+        }
+
+        .mic-button:hover, .tts-toggle-button:hover, .stop-speech-button:hover {
+            background-color: #3267D6;
+            transform: translateY(-1px);
+        }
+
+        .mic-button.recording {
+            background-color: #D93025;
+            animation: pulse 1.5s infinite;
+        }
+
+        .tts-toggle-button.active {
+            background-color: var(--secondary);
+        }
+
+        .tts-toggle-button.active:hover {
+            background-color: #2BAF4B;
+        }
+
+        .spinner {
+            display: none;
+            border: 3px solid #E8EAED;
+            border-top: 3px solid var(--secondary);
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .confirm-button, .invoice-button {
+            background-color: var(--secondary);
+            color: #FFFFFF;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 500;
+            margin-top: 8px;
+            transition: background-color 0.3s, transform 0.2s;
+        }
+
+        .confirm-button:hover, .invoice-button:hover {
+            background-color: #2BAF4B;
+            transform: translateY(-1px);
+        }
+
+        .voice-selector {
+            padding: 8px;
+            border: 1px solid #DADCE0;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            background-color: #FFFFFF;
+            cursor: pointer;
+        }
+
+        aside.sidebar {
+            flex: 1;
+            background-color: var(--card-bg);
+            padding: 16px;
+            border-radius: 12px;
+            box-shadow: var(--shadow);
+            max-width: 320px;
+            position: sticky;
+            top: 16px;
+        }
+
+        .sidebar h2 {
+            font-size: 1.1rem;
+            font-weight: 500;
+            color: var(--primary);
+            margin-bottom: 16px;
+        }
+
+        .form-group {
+            margin-bottom: 12px;
+        }
+
+        label {
+            display: block;
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text);
+            margin-bottom: 4px;
+        }
+
+        input, select, textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #DADCE0;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            transition: border-color 0.2s;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        button[type="submit"] {
+            background-color: var(--primary);
+            color: #FFFFFF;
+            border: none;
+            padding: 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 500;
+            width: 100%;
+            transition: background-color 0.3s;
+        }
+
+        button[type="submit"]:hover {
+            background-color: #3267D6;
+        }
+
+        footer {
+            margin-top: 24px;
+            padding-top: 16px;
+            border-top: 1px solid #DADCE0;
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            text-align: center;
+        }
+
+        @media (max-width: 768px) {
+            main {
+                flex-direction: column;
+            }
+
+            aside.sidebar {
+                max-width: 100%;
+                position: static;
+            }
+
+            .button-group {
+                flex-direction: column;
+                gap: 8px;
+            }
+
+            .mic-button, .tts-toggle-button, .stop-speech-button, .confirm-button, .invoice-button {
+                width: 100%;
+                justify-content: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>📅 Agentic Meeting Scheduler</h1>
+        <select id="voiceSelector" class="voice-selector">
+            <option value="default">Default Voice</option>
+        </select>
+    </header>
+    <main>
+        <div class="container">
+            <p>Hey there! Say "Hey Scheduler" to talk to me, use the form, or click buttons to schedule meetings. I’ll respond in voice and text, like Google Assistant or Siri. Toggle or stop my voice, and download invoices after scheduling.</p>
+            <p><strong>Current Date and Time: May 18, 2025, 02:19 PM IST</strong></p>
+            <div class="status-indicator" id="statusIndicator">
+                <div class="mic-icon" id="micIcon">🎙️</div>
+                <span id="statusText">Ready</span>
+            </div>
+            <div class="chat-container" id="chatContainer"></div>
+            <div class="button-group">
+                <button class="mic-button" id="micButton">
+                    <span>🎙️ Start Listening</span>
+                    <div class="spinner" id="spinner"></div>
+                </button>
+                <button class="tts-toggle-button active" id="ttsToggleButton">
+                    <span>🔊 Voice: On</span>
+                </button>
+                <button class="stop-speech-button" id="stopSpeechButton">
+                    <span>🛑 Stop Voice</span>
+                </button>
+            </div>
+        </div>
+        <aside class="sidebar">
+            <h2>Plan Your Meeting</h2>
+            <form id="meetingForm">
+                <div class="form-group">
+                    <label for="meetingDate">Date</label>
+                    <input type="date" id="meetingDate" name="meetingDate" min="2025-05-18">
+                </div>
+                <div class="form-group">
+                    <label for="meetingTime">Time</label>
+                    <input type="time" id="meetingTime" name="meetingTime">
+                </div>
+                <div class="form-group">
+                    <label for="timezone">Timezone</label>
+                    <select id="timezone" name="timezone">
+                        <option value="Asia/Kolkata">Asia/Kolkata</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="meetingTitle">Title</label>
+                    <input type="text" id="meetingTitle" name="meetingTitle" placeholder="e.g., Team Sync">
+                </div>
+                <div class="form-group">
+                    <label for="meetingDescription">Description</label>
+                    <textarea id="meetingDescription" name="meetingDescription" placeholder="e.g., Project updates"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="meetingAgenda">Agenda</label>
+                    <textarea id="meetingAgenda" name="meetingAgenda" placeholder="e.g., 1. Milestones"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="meetingAttendees">Attendees (emails)</label>
+                    <input type="text" id="meetingAttendees" name="meetingAttendees" placeholder="e.g., john@example.com">
+                </div>
+                <button type="submit">Propose Meeting</button>
+            </form>
+        </aside>
+    </main>
+    <footer>
+        <p><em>Powered by xAI, Flask, Gemini, Google Calendar, Supabase</em></p>
+        <p><em>Conversational scheduling made simple</em></p>
+        <p><em>Date: May 18, 2025</em></p>
+    </footer>
+
+    <script>
+        const chatContainer = document.getElementById('chatContainer');
+        const micButton = document.getElementById('micButton');
+        const ttsToggleButton = document.getElementById('ttsToggleButton');
+        const stopSpeechButton = document.getElementById('stopSpeechButton');
+        const voiceSelector = document.getElementById('voiceSelector');
+        const statusIndicator = document.getElementById('statusIndicator');
+        const micIcon = document.getElementById('micIcon');
+        const statusText = document.getElementById('statusText');
+        const spinner = document.getElementById('spinner');
+        const meetingForm = document.getElementById('meetingForm');
+        const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+        let isRecording = false;
+        let isTtsEnabled = true;
+        let silenceTimer;
+        const synth = window.speechSynthesis;
+
+        recognition.continuous = true;
+        recognition.interimResults = true;
+
+        // Populate timezone options
+        const timezoneSelect = document.getElementById('timezone');
+        const timezones = ['America/New_York', 'Europe/London', 'Australia/Sydney'];
+        timezones.forEach(tz => {
+            const option = document.createElement('option');
+            option.value = tz;
+            option.textContent = tz;
+            timezoneSelect.appendChild(option);
+        });
+
+        // Populate voice options
+        function populateVoices() {
+            const voices = synth.getVoices().filter(v => v.lang.includes('en'));
+            voiceSelector.innerHTML = '';
+            voices.forEach((voice, index) => {
+                const option = document.createElement('option');
+                option.value = index;
+                option.textContent = voice.name;
+                voiceSelector.appendChild(option);
+            });
+        }
+        synth.onvoiceschanged = populateVoices;
+        populateVoices();
+
+        // Clean markdown
+        function cleanMarkdown(text) {
+            if (typeof text !== 'string') return text;
+            return text.replace(/```json\n?|\n?```/g, '').replace(/```/g, '').trim();
+        }
+
+        // Speak text
+        function speakText(text) {
+            if (!isTtsEnabled || !text) return;
+            synth.cancel();
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'en-US';
+            const voices = synth.getVoices();
+            const selectedVoice = voices[voiceSelector.value] || voices[0];
+            utterance.voice = selectedVoice;
+            utterance.volume = 1;
+            utterance.rate = 1.1; // Slightly faster for natural feel
+            utterance.pitch = 1;
+            utterance.onstart = () => {
+                statusText.textContent = 'Speaking';
+                micIcon.classList.add('speaking');
+                micIcon.classList.remove('listening');
+            };
+            utterance.onend = () => {
+                statusText.textContent = 'Ready';
+                micIcon.classList.remove('speaking');
+            };
+            synth.speak(utterance);
+        }
+
+        // Confirm meeting
+        async function confirmMeeting() {
+            statusText.textContent = 'Processing';
+            try {
+                spinner.style.display = 'inline-block';
+                const response = await fetch('/schedule', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+                const data = await response.json();
+                spinner.style.display = 'none';
+                statusText.textContent = 'Ready';
+                console.log('Schedule response:', data);
+
+                if (data.error) {
+                    const errorMessage = cleanMarkdown(data.error);
+                    updateChat([...(data.chat_history || []), {
+                        role: 'Assistant',
+                        message: `Error: ${errorMessage}`
+                    }]);
+                    speakText(errorMessage);
+                } else if (data.chat_history) {
+                    updateChat(data.chat_history);
+                } else {
+                    updateChat([{
+                        role: 'Assistant',
+                        message: 'Oops, something went wrong.'
+                    }]);
+                    speakText('Oops, something went wrong.');
+                }
+            } catch (error) {
+                spinner.style.display = 'none';
+                statusText.textContent = 'Ready';
+                console.error('Fetch error:', error);
+                updateChat([{
+                    role: 'Assistant',
+                    message: 'Failed to confirm meeting.'
+                }]);
+                speakText('Failed to confirm meeting.');
+            }
+        }
+
+        // Download invoice
+        async function downloadInvoice(eventId) {
+            statusText.textContent = 'Generating Invoice';
+            try {
+                spinner.style.display = 'inline-block';
+                const response = await fetch('/generate_invoice', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ event_id: eventId })
+                });
+                if (!response.ok) throw new Error('Failed to generate invoice');
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `invoice_${eventId}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(url);
+                spinner.style.display = 'none';
+                statusText.textContent = 'Ready';
+            } catch (error) {
+                spinner.style.display = 'none';
+                statusText.textContent = 'Ready';
+                console.error('Invoice error:', error);
+                updateChat([{
+                    role: 'Assistant',
+                    message: 'Failed to download invoice.'
+                }]);
+                speakText('Failed to download invoice.');
+            }
+        }
+
+        // Update chat UI
+        function updateChat(messages) {
+            chatContainer.innerHTML = '';
+            if (!Array.isArray(messages) || messages.length === 0) {
+                const div = document.createElement('div');
+                div.className = 'chat-message error-message';
+                div.innerHTML = '<strong>Assistant</strong>: No messages to display.';
+                chatContainer.appendChild(div);
+                speakText('No messages to display.');
+                return;
+            }
+            messages.forEach(msg => {
+                if (msg && msg.role && msg.message) {
+                    const div = document.createElement('div');
+                    div.className = `chat-message ${msg.role === 'user' ? 'user-message' : 'assistant-message'}`;
+                    const cleanedMessage = cleanMarkdown(msg.message);
+                    div.innerHTML = `<strong>${msg.role === 'user' ? 'You' : 'Assistant'}</strong>: ${cleanedMessage}`;
+                    
+                    if (msg.role === 'Assistant' && cleanedMessage.includes("Confirm it?")) {
+                        const confirmButton = document.createElement('button');
+                        confirmButton.className = 'confirm-button';
+                        confirmButton.textContent = 'Confirm';
+                        confirmButton.onclick = confirmMeeting;
+                        div.appendChild(confirmButton);
+                    }
+                    
+                    if (msg.role === 'Assistant' && cleanedMessage.includes("Event ID")) {
+                        const eventIdMatch = cleanedMessage.match(/Event ID: (\w+)/);
+                        if (eventIdMatch) {
+                            const eventId = eventIdMatch[1];
+                            const invoiceButton = document.createElement('button');
+                            invoiceButton.className = 'invoice-button';
+                            invoiceButton.textContent = 'Get Invoice';
+                            invoiceButton.onclick = () => downloadInvoice(eventId);
+                            div.appendChild(invoiceButton);
+                        }
+                    }
+                    
+                    chatContainer.appendChild(div);
+                    
+                    if (msg.role === 'Assistant' && cleanedMessage) {
+                        speakText(cleanedMessage);
+                    }
+                }
+            });
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        // Send input to backend
+        async function sendInput(input) {
+            statusText.textContent = 'Thinking';
+            try {
+                spinner.style.display = 'inline-block';
+                const response = await fetch('/transcribe', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ input })
+                });
+                const data = await response.json();
+                spinner.style.display = 'none';
+                statusText.textContent = 'Ready';
+                console.log('Backend response:', data);
+
+                if (data.error) {
+                    const errorMessage = cleanMarkdown(data.error);
+                    updateChat([...(data.chat_history || []), {
+                        role: 'Assistant',
+                        message: `Error: ${errorMessage}`
+                    }]);
+                    speakText(errorMessage);
+                } else if (data.chat_history) {
+                    updateChat(data.chat_history);
+                } else {
+                    updateChat([{
+                        role: 'Assistant',
+                        message: 'Oops, something went wrong.'
+                    }]);
+                    speakText('Oops, something went wrong.');
+                }
+            } catch (error) {
+                spinner.style.display = 'none';
+                statusText.textContent = 'Ready';
+                console.error('Fetch error:', error);
+                updateChat([{
+                    role: 'Assistant',
+                    message: 'Failed to process input.'
+                }]);
+                speakText('Failed to process input.');
+            }
+        }
+
+        // Handle speech recognition
+        recognition.onresult = (event) => {
+            let interimTranscript = '';
+            let finalTranscript = '';
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+                const transcript = event.results[i][0].transcript;
+                if (event.results[i].isFinal) {
+                    finalTranscript += transcript;
+                } else {
+                    interimTranscript += transcript;
+                }
+            }
+            if (finalTranscript.toLowerCase().includes('hey scheduler')) {
+                if (!isRecording) {
+                    micButton.click();
+                }
+            }
+            if (finalTranscript) {
+                clearTimeout(silenceTimer);
+                silenceTimer = setTimeout(() => {
+                    recognition.stop();
+                    micButton.classList.remove('recording');
+                    micButton.querySelector('span').textContent = '🎙️ Start Listening';
+                    isRecording = false;
+                    statusText.textContent = 'Processing';
+                    micIcon.classList.remove('listening');
+                    sendInput(finalTranscript);
+                }, 3000); // Reduced silence timeout
+            }
+        };
+
+        recognition.onstart = () => {
+            statusText.textContent = 'Listening';
+            micIcon.classList.add('listening');
+        };
+
+        recognition.onend = () => {
+            if (isRecording) {
+                recognition.start();
+            } else {
+                statusText.textContent = 'Ready';
+                micIcon.classList.remove('listening');
+            }
+        };
+
+        micButton.addEventListener('click', () => {
+            if (isRecording) {
+                recognition.stop();
+                micButton.classList.remove('recording');
+                micButton.querySelector('span').textContent = '🎙️ Start Listening';
+                isRecording = false;
+            } else {
+                recognition.start();
+                micButton.classList.add('recording');
+                micButton.querySelector('span').textContent = '🎙️ Stop Listening';
+                isRecording = true;
+            }
+        });
+
+        ttsToggleButton.addEventListener('click', () => {
+            isTtsEnabled = !isTtsEnabled;
+            ttsToggleButton.classList.toggle('active', isTtsEnabled);
+            ttsToggleButton.querySelector('span').textContent = `🔊 Voice: ${isTtsEnabled ? 'On' : 'Off'}`;
+            if (!isTtsEnabled) {
+                synth.cancel();
+            }
+        });
+
+        stopSpeechButton.addEventListener('click', () => {
+            synth.cancel();
+            statusText.textContent = 'Ready';
+            micIcon.classList.remove('speaking');
+        });
+
+        meetingForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(meetingForm);
+            const date = formData.get('meetingDate') || '2025-05-18';
+            const time = formData.get('meetingTime') || '09:00';
+            const timezone = formData.get('timezone') || 'Asia/Kolkata';
+            const title = formData.get('meetingTitle') || 'Meeting';
+            const description = formData.get('meetingDescription') || '';
+            const agenda = formData.get('meetingAgenda') || '';
+            const attendees = formData.get('meetingAttendees') ? formData.get('meetingAttendees').split(',').map(email => email.trim()).filter(email => email) : [];
+            const input = `Proposed meeting: ${title} on ${date} ${time} ${timezone} with ${attendees.join(', ') || 'no attendees'}`;
+            await sendInput(input);
+        });
+    </script>
+</body>
+</html>
