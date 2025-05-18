@@ -8,7 +8,17 @@ import logging
 import json
 import os
 import pytz
+import speech_recognition as sr
 import re
+
+# Load configuration
+try:
+    from config import GEMINI_API_KEY, SUPABASE_URL, SUPABASE_KEY
+except ImportError:
+    # For Vercel, load from environment variables
+    GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+    SUPABASE_URL = os.getenv('SUPABASE_URL')
+    SUPABASE_KEY = os.getenv('SUPABASE_KEY')
 
 app = Flask(__name__)
 
@@ -16,66 +26,47 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # 🔹 Configure Gemini API
-api_key = os.getenv("GEMINI_API_KEY")
-if not api_key:
-    logger.error("Gemini API key not found")
+try:
+    genai.configure(api_key=GEMINI_API_KEY)
+    llm = genai.GenerativeModel('gemini-1.5-flash-001-tuning')
+except Exception as e:
+    logger.error(f"Gemini API config error: {e}")
     llm = None
-else:
-    try:
-        genai.configure(api_key=api_key)
-        llm = genai.GenerativeModel('gemini-1.5-flash-001-tuning')
-    except Exception as e:
-        logger.error(f"Gemini API config error: {e}")
-        llm = None
 
 # 🔹 Configure Supabase
-supabase_url = os.getenv("SUPABASE_URL")
-supabase_key = os.getenv("SUPABASE_KEY")
-if not supabase_url or not supabase_key:
-    logger.error("Supabase credentials not found")
+try:
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    supabase.table("meetings").select("*").limit(1).execute()
+except Exception as e:
+    logger.error(f"Supabase connection failed: {e}")
     supabase = None
-else:
-    try:
-        supabase: Client = create_client(supabase_url, supabase_key)
-        supabase.table("meetings").select("*").limit(1).execute()
-    except Exception as e:
-        logger.error(f"Supabase connection failed: {e}")
-        supabase = None
 
 # 🔹 Google Calendar API Setup
-SCOPES = ["https://www.googleapis.com/auth/calendar"]
+SCOPES = ['https://www.googleapis.com/auth/calendar']
+CREDENTIALS_FILE = 'credentials.json'
+TOKEN_FILE = 'token.json'
 
 def get_calendar_service():
     """Authenticate and return Google Calendar service."""
-    credentials_file = os.getenv("CREDENTIALS_JSON")
-    token_file = os.getenv("TOKEN_JSON")
-    if not credentials_file or not token_file:
-        logger.error("Google Calendar credentials or token not found in environment variables")
+    if not os.path.exists(CREDENTIALS_FILE):
+        logger.error("Missing credentials.json")
         return None
     try:
-        # Write credentials.json and token.json from environment variables
-        with open("credentials.json", "w") as f:
-            f.write(credentials_file)
-        with open("token.json", "w") as f:
-            f.write(token_file)
         creds = None
-        if os.path.exists("token.json"):
+        if os.path.exists(TOKEN_FILE):
             from google.oauth2.credentials import Credentials
-            creds = Credentials.from_authorized_user_file("token.json", SCOPES)
+            creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
         if not creds or not creds.valid:
-            logger.error("Invalid or expired credentials; re-authentication required")
-            return None
+            flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
+            creds = flow.run_local_server(port=0)
+            with open(TOKEN_FILE, 'w') as token:
+                token.write(creds.to_json())
         return build('calendar', 'v3', credentials=creds)
     except Exception as e:
         logger.error(f"Calendar auth error: {e}")
         return None
-    finally:
-        # Clean up temporary files
-        for file in ["credentials.json", "token.json"]:
-            if os.path.exists(file):
-                os.remove(file)
 
-# 🔹 In-memory state
+# 🔹 In-memory state (simulating Streamlit session state)
 state = {
     'chat_history': [],
     'meeting_details': {},
@@ -96,24 +87,42 @@ def get_gemini_response(prompt):
         logger.error(f"Gemini response failed: {str(e)}")
         return f"Oops, something went wrong: {str(e)}. Could you try again?"
 
+def transcribe_speech(audio_data):
+    """Transcribe speech from audio data, simulating 5-second pause server-side."""
+    recognizer = sr.Recognizer()
+    try:
+        # Simulate audio input (in practice, audio_data would be processed differently)
+        text = recognizer.recognize_google(audio_data)
+        return text
+    except sr.UnknownValueError:
+        return "Oops, I couldn't make out what you said. Could you speak a bit clearer?"
+    except sr.RequestError as e:
+        return f"Oops, there was a speech recognition issue: {str(e)}. Please try again."
+    except Exception as e:
+        logger.error(f"Speech transcription failed: {str(e)}")
+        return f"Something went wrong while processing your speech: {str(e)}. Let's try that again."
+
 def schedule_meeting(details):
     """Schedule a meeting in Google Calendar and store in Supabase."""
     try:
         service = state['calendar_service'] or get_calendar_service()
         if not service:
-            return None, "Looks like your Google Calendar credentials are missing or invalid."
+            return None, "Looks like your Google Calendar credentials are missing or invalid. Please ensure credentials.json is in the project directory and re-authenticate."
         state['calendar_service'] = service
 
+        # Ensure summary is a non-empty string
         title = details.get('title', 'Meeting')
         if not isinstance(title, str) or not title.strip():
             logger.warning(f"Invalid title found: {title}. Defaulting to 'Meeting'.")
             title = 'Meeting'
 
+        # Combine description and agenda
         description = details.get('description', '')
         agenda = details.get('agenda', '')
         if agenda:
             description = f"{description}\n\nAgenda: {agenda}" if description else f"Agenda: {agenda}"
 
+        # Log details for debugging
         logger.info(f"Scheduling meeting with details: {details}")
 
         event = {
@@ -141,6 +150,7 @@ def schedule_meeting(details):
         ).execute()
         logger.info(f"Event created: {event['id']}, Summary: {event['summary']}, Start: {event['start']['dateTime']}")
 
+        # Store in Supabase
         if supabase:
             try:
                 supabase.table("meetings").insert({
@@ -158,7 +168,7 @@ def schedule_meeting(details):
         return event['id'], None
     except Exception as e:
         logger.error(f"Meeting scheduling failed: {str(e)}")
-        return None, f"Oops, I couldn’t schedule the meeting: {str(e)}."
+        return None, f"Oops, I couldn’t schedule the meeting: {str(e)}. Please check if credentials.json is valid, re-authenticate if needed, and ensure your Google Calendar is accessible."
 
 # 🔹 Routes
 @app.route('/')
@@ -178,6 +188,7 @@ def transcribe():
 
     state['chat_history'].append({'role': 'user', 'message': user_input})
     
+    # Include prior meeting details in the prompt for context
     prior_details = state.get('meeting_details', {})
     prior_details_str = json.dumps(prior_details, default=str) if prior_details else "None"
 
@@ -215,10 +226,12 @@ def transcribe():
     response = get_gemini_response(prompt)
     logger.info(f"Gemini response: {response}")
 
+    # Clean markdown and extract JSON
     cleaned_response = response.replace('```json', '').replace('```', '').strip()
     conversational_message = None
     json_str = None
 
+    # Try to extract JSON using regex
     json_match = re.search(r'\{[\s\S]*\}', cleaned_response)
     if json_match:
         json_str = json_match.group(0)
@@ -226,22 +239,28 @@ def transcribe():
         logger.info(f"Extracted JSON: {json_str}")
         logger.info(f"Conversational message: {conversational_message or 'None'}")
     else:
-        json_str = cleaned_response
-
+        json_str = cleaned(zone_id='Asia/Kolkata')
     try:
         if cleaned_response == "SCHEDULE":
             if state['meeting_details']:
                 event_id, error = schedule_meeting(state['meeting_details'])
                 if event_id:
                     message = f"All done! Your meeting’s scheduled with Event ID: {event_id}. Check your Google Calendar and email for the details!"
-                    state['meeting_details'] = {}
+                    state['meeting_details'] = {}  # Clear details
                 else:
                     message = error
                 state['chat_history'].append({'role': 'Assistant', 'message': message})
                 logger.info(f"Constructed message: {message}")
                 return jsonify({
                     'message': message,
-                    'event_id': event_id,
+                    'chat_history': state['chat_history']
+                })
+            else:
+                message = "Hmm, I don’t have any meeting details to schedule yet. Try sharing some details first!"
+                state['chat_history'].append({'role': 'Assistant', 'message': message})
+                logger.info(f"Constructed message: {message}")
+                return jsonify({
+                    'message': message,
                     'chat_history': state['chat_history']
                 })
         elif cleaned_response.startswith("CLARIFY"):
@@ -250,15 +269,16 @@ def transcribe():
             logger.info(f"Constructed message: {message}")
             return jsonify({
                 'message': message,
-                'event_id': None,
                 'chat_history': state['chat_history']
             })
         else:
+            # Parse JSON
             corrected_details = json.loads(json_str)
             start_time = datetime.strptime(
                 f"{corrected_details['date']} {corrected_details['time']}",
                 '%Y-%m-%d %H:%M'
             ).replace(tzinfo=pytz.timezone(corrected_details['timezone']))
+            # Update meeting details incrementally
             state['meeting_details'] = {
                 'title': corrected_details['title'] or state['meeting_details'].get('title', 'Meeting'),
                 'description': corrected_details['description'] or state['meeting_details'].get('description', ''),
@@ -278,7 +298,6 @@ def transcribe():
             logger.info(f"Constructed message: {message}")
             return jsonify({
                 'message': message,
-                'event_id': None,
                 'chat_history': state['chat_history']
             })
     except json.JSONDecodeError:
@@ -288,7 +307,6 @@ def transcribe():
         logger.info(f"Constructed message: {message}")
         return jsonify({
             'message': message,
-            'event_id': None,
             'chat_history': state['chat_history']
         })
     except Exception as e:
@@ -298,7 +316,6 @@ def transcribe():
         logger.info(f"Constructed message: {message}")
         return jsonify({
             'message': message,
-            'event_id': None,
             'chat_history': state['chat_history']
         })
 
@@ -311,23 +328,21 @@ def schedule():
         logger.info(f"Constructed message: {message}")
         return jsonify({
             'message': message,
-            'event_id': None,
             'chat_history': state['chat_history']
         })
     
     event_id, error = schedule_meeting(state['meeting_details'])
     if event_id:
         message = f"All done! Your meeting’s scheduled with Event ID: {event_id}. Check your Google Calendar and email for the details!"
-        state['meeting_details'] = {}
+        state['meeting_details'] = {}  # Clear details
     else:
         message = error
     state['chat_history'].append({'role': 'Assistant', 'message': message})
     logger.info(f"Constructed message: {message}")
     return jsonify({
         'message': message,
-        'event_id': event_id,
         'chat_history': state['chat_history']
     })
 
 if __name__ == '__main__':
-    app.run()
+    app.run(debug=True)
